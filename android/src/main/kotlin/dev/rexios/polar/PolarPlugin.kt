@@ -171,7 +171,12 @@ class PolarPlugin :
     }
 
     override fun onCancel(arguments: Any?) {
-        wrapper.removeSink(arguments as Int)
+        val id = arguments as? Int
+        if (id == null) {
+            android.util.Log.w("PolarPlugin", "onCancel called with null arguments; ignoring")
+            return
+        }
+        wrapper.removeSink(id)
     }
 
     private val searchHandler =
