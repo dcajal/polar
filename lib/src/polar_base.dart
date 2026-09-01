@@ -12,6 +12,9 @@ import 'package:polar/src/model/polar_event_wrapper.dart';
 /// Flutter implementation of the [PolarBleSdk]
 @immutable
 class Polar {
+  /// Stable [PlatformException.code] returned when [waitForConnection] times out.
+  static const waitForConnectionTimeoutCode = 'waitForConnectionTimeout';
+
   static const _methodChannel = MethodChannel('polar/methods');
   static const _eventChannel = EventChannel('polar/events');
   static const _searchChannel = EventChannel('polar/search');
@@ -161,6 +164,47 @@ class Polar {
   /// - Throws: InvalidArgument if identifier is invalid polar device id or invalid uuid
   Future<void> disconnectFromDevice(String identifier) {
     return _methodChannel.invokeMethod('disconnectFromDevice', identifier);
+  }
+
+  /// Returns whether [feature] is ready for use on [identifier].
+  ///
+  /// This is a synchronous native SDK query exposed as a [Future] through the
+  /// method channel. It does not poll or wait for the feature to become ready.
+  Future<bool> isFeatureReady(
+    String identifier,
+    PolarSdkFeature feature,
+  ) async {
+    final result = await _methodChannel.invokeMethod<bool>('isFeatureReady', [
+      identifier,
+      feature.toJson(),
+    ]);
+    if (result == null) {
+      throw StateError('isFeatureReady returned null');
+    }
+    return result;
+  }
+
+  /// Enables or disables the native SDK automatic reconnection policy.
+  Future<void> setAutomaticReconnection(bool enabled) {
+    return _methodChannel.invokeMethod('setAutomaticReconnection', enabled);
+  }
+
+  /// Waits until [identifier] is connected, with a native cancellable timeout.
+  ///
+  /// A timeout is reported as a [PlatformException] whose code is
+  /// [waitForConnectionTimeoutCode]. The native SDK subscription is disposed
+  /// on success, error, or timeout.
+  Future<void> waitForConnection(
+    String identifier, {
+    required Duration timeout,
+  }) {
+    if (timeout <= Duration.zero) {
+      throw ArgumentError.value(timeout, 'timeout', 'Must be positive');
+    }
+    return _methodChannel.invokeMethod('waitForConnection', [
+      identifier,
+      timeout.inMilliseconds,
+    ]);
   }
 
   ///  Get the data types available in this device for online streaming

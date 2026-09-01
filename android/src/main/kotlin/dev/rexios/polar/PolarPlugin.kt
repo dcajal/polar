@@ -41,9 +41,12 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.reactivex.rxjava3.disposables.Disposable
+import io.reactivex.rxjava3.disposables.SerialDisposable
 import java.lang.reflect.Type
 import java.util.Date
 import java.util.UUID
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 fun Any?.discard() = Unit
 
@@ -144,6 +147,22 @@ class PolarPlugin :
             "disconnectFromDevice" -> {
                 wrapper.api.disconnectFromDevice(call.arguments as String)
                 result.success(null)
+            }
+
+            "isFeatureReady" -> {
+                val arguments = call.arguments as List<*>
+                val identifier = arguments[0] as String
+                val feature = gson.fromJson(arguments[1] as String, PolarBleSdkFeature::class.java)
+                result.success(wrapper.api.isFeatureReady(identifier, feature))
+            }
+
+            "setAutomaticReconnection" -> {
+                wrapper.api.setAutomaticReconnection(call.arguments as Boolean)
+                result.success(null)
+            }
+
+            "waitForConnection" -> {
+                waitForConnection(call, result)
             }
 
             "getAvailableOnlineStreamDataTypes" -> {
@@ -336,6 +355,39 @@ class PolarPlugin :
                 }
             })
             .discard()
+    }
+
+    private fun waitForConnection(
+        call: MethodCall,
+        result: Result,
+    ) {
+        val arguments = call.arguments as List<*>
+        val identifier = arguments[0] as String
+        val timeoutMilliseconds = (arguments[1] as Number).toLong()
+        val subscription = SerialDisposable()
+
+        subscription.set(
+            wrapper.api
+                .waitForConnection(identifier)
+                .timeout(timeoutMilliseconds, TimeUnit.MILLISECONDS)
+                .subscribe({
+                    subscription.dispose()
+                    runOnUiThread { result.success(null) }
+                }, { error ->
+                    subscription.dispose()
+                    runOnUiThread {
+                        if (error is TimeoutException) {
+                            result.error(
+                                "waitForConnectionTimeout",
+                                "Timed out waiting for Polar device connection",
+                                null,
+                            )
+                        } else {
+                            result.error(error.toString(), error.message, null)
+                        }
+                    }
+                }),
+        )
     }
 
     private fun getAvailableHrServiceDataTypes(

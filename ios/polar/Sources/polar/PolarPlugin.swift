@@ -7,6 +7,8 @@ import UIKit
 private let encoder = JSONEncoder()
 private let decoder = JSONDecoder()
 
+private struct WaitForConnectionTimeoutError: Error {}
+
 private func jsonEncode(_ value: Encodable) -> String? {
   guard let data = try? encoder.encode(value),
     let data = String(data: data, encoding: .utf8)
@@ -116,6 +118,13 @@ public class PolarPlugin:
       case "disconnectFromDevice":
         try api.disconnectFromDevice(call.arguments as! String)
         result(nil)
+      case "isFeatureReady":
+        isFeatureReady(call, result)
+      case "setAutomaticReconnection":
+        api.automaticReconnection = call.arguments as! Bool
+        result(nil)
+      case "waitForConnection":
+        waitForConnection(call, result)
       case "getAvailableOnlineStreamDataTypes":
         getAvailableOnlineStreamDataTypes(call, result)
       case "getAvailableHrServiceDataTypes":
@@ -218,6 +227,72 @@ public class PolarPlugin:
     }
 
     result(nil)
+  }
+
+  private func isFeatureReady(
+    _ call: FlutterMethodCall, _ result: @escaping FlutterResult
+  ) {
+    let arguments = call.arguments as! [Any]
+    let identifier = arguments[0] as! String
+    let featureName = arguments[1] as! String
+    guard
+      let feature = PolarBleSdkFeature.allCases.first(where: {
+        String(describing: $0).uppercased() == featureName.uppercased()
+      })
+    else {
+      result(
+        FlutterError(
+          code: "invalidPolarSdkFeature",
+          message: "Unknown Polar SDK feature: \(featureName)",
+          details: nil
+        )
+      )
+      return
+    }
+
+    result(api.isFeatureReady(identifier, feature: feature))
+  }
+
+  private func waitForConnection(
+    _ call: FlutterMethodCall, _ result: @escaping FlutterResult
+  ) {
+    let arguments = call.arguments as! [Any]
+    let identifier = arguments[0] as! String
+    let timeoutMilliseconds = arguments[1] as! Int
+    let subscription = SerialDisposable()
+
+    subscription.disposable = api.waitForConnection(identifier)
+      .timeout(
+        .milliseconds(timeoutMilliseconds),
+        other: Completable.error(WaitForConnectionTimeoutError()),
+        scheduler: MainScheduler.instance
+      )
+      .subscribe(
+        onCompleted: {
+          subscription.dispose()
+          result(nil)
+        },
+        onError: { error in
+          subscription.dispose()
+          if error is WaitForConnectionTimeoutError {
+            result(
+              FlutterError(
+                code: "waitForConnectionTimeout",
+                message: "Timed out waiting for Polar device connection",
+                details: nil
+              )
+            )
+          } else {
+            result(
+              FlutterError(
+                code: "Error waiting for connection",
+                message: error.localizedDescription,
+                details: nil
+              )
+            )
+          }
+        }
+      )
   }
 
   func getAvailableOnlineStreamDataTypes(
