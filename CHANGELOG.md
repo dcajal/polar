@@ -1,3 +1,27 @@
+## 7.11.0
+
+- Adds `shutDown` to release Polar SDK resources
+
+## 7.10.2
+
+- Updates minimum supported SDK version to Flutter 3.44/Dart 3.12.
+- Migrates to built-in Kotlin
+
+## 7.10.1
+
+- Dependency upgrades
+
+## 7.10.0
+
+- Upgrades Polar SDK to `6.14.0`
+- Adds missing `PolarSdkFeature.featuresConfigurationService`
+- Adds SwiftPM support
+
+## 7.9.0
+
+- Actually implements multi-isolate support on iOS
+- Fixes issue with hot reload on Android (by [@dcajal](https://github.com/dcajal) in [#70](https://github.com/Rexios80/polar/pull/70))
+
 ## 7.8.0
 
 - Adds `doFirstTimeUse` and `isFtuDone` to support Polar 360 (by [@Mu2tini](https://github.com/Mu2tini) in [#68](https://github.com/Rexios80/polar/pull/68))

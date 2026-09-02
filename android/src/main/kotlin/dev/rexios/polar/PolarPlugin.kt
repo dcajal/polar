@@ -131,6 +131,11 @@ class PolarPlugin :
         initApi()
 
         when (call.method) {
+            "shutDown" -> {
+                shutDown()
+                result.success(null)
+            }
+
             "connectToDevice" -> {
                 wrapper.api.connectToDevice(call.arguments as String)
                 result.success(null)
@@ -141,24 +146,77 @@ class PolarPlugin :
                 result.success(null)
             }
 
-            "getAvailableOnlineStreamDataTypes" -> getAvailableOnlineStreamDataTypes(call, result)
-            "getAvailableHrServiceDataTypes" -> getAvailableHrServiceDataTypes(call, result)
-            "requestStreamSettings" -> requestStreamSettings(call, result)
-            "createStreamingChannel" -> createStreamingChannel(call, result)
-            "startRecording" -> startRecording(call, result)
-            "stopRecording" -> stopRecording(call, result)
-            "requestRecordingStatus" -> requestRecordingStatus(call, result)
-            "listExercises" -> listExercises(call, result)
-            "fetchExercise" -> fetchExercise(call, result)
-            "removeExercise" -> removeExercise(call, result)
-            "setLedConfig" -> setLedConfig(call, result)
-            "doFactoryReset" -> doFactoryReset(call, result)
-            "enableSdkMode" -> enableSdkMode(call, result)
-            "disableSdkMode" -> disableSdkMode(call, result)
-            "isSdkModeEnabled" -> isSdkModeEnabled(call, result)
-            "doFirstTimeUse" -> doFirstTimeUse(call, result)
-            "isFtuDone" -> isFtuDone(call, result)
-            else -> result.notImplemented()
+            "getAvailableOnlineStreamDataTypes" -> {
+                getAvailableOnlineStreamDataTypes(call, result)
+            }
+
+            "getAvailableHrServiceDataTypes" -> {
+                getAvailableHrServiceDataTypes(call, result)
+            }
+
+            "requestStreamSettings" -> {
+                requestStreamSettings(call, result)
+            }
+
+            "createStreamingChannel" -> {
+                createStreamingChannel(call, result)
+            }
+
+            "startRecording" -> {
+                startRecording(call, result)
+            }
+
+            "stopRecording" -> {
+                stopRecording(call, result)
+            }
+
+            "requestRecordingStatus" -> {
+                requestRecordingStatus(call, result)
+            }
+
+            "listExercises" -> {
+                listExercises(call, result)
+            }
+
+            "fetchExercise" -> {
+                fetchExercise(call, result)
+            }
+
+            "removeExercise" -> {
+                removeExercise(call, result)
+            }
+
+            "setLedConfig" -> {
+                setLedConfig(call, result)
+            }
+
+            "doFactoryReset" -> {
+                doFactoryReset(call, result)
+            }
+
+            "enableSdkMode" -> {
+                enableSdkMode(call, result)
+            }
+
+            "disableSdkMode" -> {
+                disableSdkMode(call, result)
+            }
+
+            "isSdkModeEnabled" -> {
+                isSdkModeEnabled(call, result)
+            }
+
+            "doFirstTimeUse" -> {
+                doFirstTimeUse(call, result)
+            }
+
+            "isFtuDone" -> {
+                isFtuDone(call, result)
+            }
+
+            else -> {
+                result.notImplemented()
+            }
         }
     }
 
@@ -202,7 +260,12 @@ class PolarPlugin :
             }
 
             override fun onCancel(arguments: Any?) {
+                dispose()
+            }
+
+            fun dispose() {
                 searchSubscription?.dispose()
+                searchSubscription = null
             }
         }
 
@@ -228,8 +291,14 @@ class PolarPlugin :
         lifecycle.addObserver(
             LifecycleEventObserver { _, event ->
                 when (event) {
-                    Event.ON_RESUME -> wrapperInternal?.api?.foregroundEntered()
-                    Event.ON_DESTROY -> shutDown()
+                    Event.ON_RESUME -> {
+                        wrapperInternal?.api?.foregroundEntered()
+                    }
+
+                    Event.ON_DESTROY -> {
+                        shutDown()
+                    }
+
                     else -> {}
                 }
             },
@@ -243,8 +312,16 @@ class PolarPlugin :
     override fun onDetachedFromActivity() {}
 
     private fun shutDown() {
-        if (wrapperInternal == null) return
-        wrapper.shutDown()
+        streamingChannels.values.forEach { it.dispose() }
+        streamingChannels.clear()
+        searchHandler.dispose()
+        if (wrapperInternal != null) {
+            try {
+                wrapper.api.shutDown()
+            } catch (_: Exception) {
+            }
+            wrapperInternal = null
+        }
     }
 
     private fun getAvailableOnlineStreamDataTypes(
@@ -696,26 +773,55 @@ class StreamingChannel(
 
         val stream =
             when (feature) {
-                PolarDeviceDataType.HR -> api.startHrStreaming(identifier)
-                PolarDeviceDataType.ECG -> api.startEcgStreaming(identifier, settings)
-                PolarDeviceDataType.ACC -> api.startAccStreaming(identifier, settings)
-                PolarDeviceDataType.PPG -> api.startPpgStreaming(identifier, settings)
-                PolarDeviceDataType.PPI -> api.startPpiStreaming(identifier)
-                PolarDeviceDataType.GYRO -> api.startGyroStreaming(identifier, settings)
-                PolarDeviceDataType.MAGNETOMETER ->
+                PolarDeviceDataType.HR -> {
+                    api.startHrStreaming(identifier)
+                }
+
+                PolarDeviceDataType.ECG -> {
+                    api.startEcgStreaming(identifier, settings)
+                }
+
+                PolarDeviceDataType.ACC -> {
+                    api.startAccStreaming(identifier, settings)
+                }
+
+                PolarDeviceDataType.PPG -> {
+                    api.startPpgStreaming(identifier, settings)
+                }
+
+                PolarDeviceDataType.PPI -> {
+                    api.startPpiStreaming(identifier)
+                }
+
+                PolarDeviceDataType.GYRO -> {
+                    api.startGyroStreaming(identifier, settings)
+                }
+
+                PolarDeviceDataType.MAGNETOMETER -> {
                     api.startMagnetometerStreaming(
                         identifier,
                         settings,
                     )
+                }
 
-                PolarDeviceDataType.TEMPERATURE ->
+                PolarDeviceDataType.TEMPERATURE -> {
                     api.startTemperatureStreaming(
                         identifier,
                         settings,
                     )
-                PolarDeviceDataType.PRESSURE -> api.startPressureStreaming(identifier, settings)
-                PolarDeviceDataType.SKIN_TEMPERATURE -> api.startSkinTemperatureStreaming(identifier, settings)
-                PolarDeviceDataType.LOCATION -> api.startLocationStreaming(identifier, settings)
+                }
+
+                PolarDeviceDataType.PRESSURE -> {
+                    api.startPressureStreaming(identifier, settings)
+                }
+
+                PolarDeviceDataType.SKIN_TEMPERATURE -> {
+                    api.startSkinTemperatureStreaming(identifier, settings)
+                }
+
+                PolarDeviceDataType.LOCATION -> {
+                    api.startLocationStreaming(identifier, settings)
+                }
             }
 
         subscription =

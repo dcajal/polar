@@ -5,7 +5,7 @@ import 'package:polar/polar.dart';
 
 import '../../test/tests.dart';
 
-const identifier = '1C709B20';
+const identifier = 'D780C525';
 
 void main() async {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -38,4 +38,5 @@ void main() async {
   );
   testRecording(identifier);
   testMisc(identifier, supportsLedConfig: false);
+  testShutDown(identifier);
 }

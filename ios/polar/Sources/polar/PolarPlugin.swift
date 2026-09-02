@@ -17,7 +17,7 @@ private func jsonEncode(_ value: Encodable) -> String? {
   return data
 }
 
-public class SwiftPolarPlugin:
+public class PolarPlugin:
   NSObject,
   FlutterPlugin,
   FlutterStreamHandler,
@@ -42,7 +42,7 @@ public class SwiftPolarPlugin:
   var streamingChannels = [String: StreamingChannel]()
 
   var api: PolarBleApi!
-  var events: FlutterEventSink?
+  var sinks: [Int: FlutterEventSink] = [:]
 
   init(
     messenger: FlutterBinaryMessenger,
@@ -67,6 +67,22 @@ public class SwiftPolarPlugin:
     api.deviceInfoObserver = self
   }
 
+  private func shutDown() {
+    for channel in streamingChannels.values {
+      channel.dispose()
+    }
+    streamingChannels.removeAll()
+    searchSubscription?.dispose()
+    searchSubscription = nil
+    guard api != nil else { return }
+    api.cleanup()
+    api.observer = nil
+    api.powerStateObserver = nil
+    api.deviceFeaturesObserver = nil
+    api.deviceInfoObserver = nil
+    api = nil
+  }
+
   public static func register(with registrar: FlutterPluginRegistrar) {
     let methodChannel = FlutterMethodChannel(
       name: "polar/methods", binaryMessenger: registrar.messenger())
@@ -75,7 +91,7 @@ public class SwiftPolarPlugin:
     let searchChannel = FlutterEventChannel(
       name: "polar/search", binaryMessenger: registrar.messenger())
 
-    let instance = SwiftPolarPlugin(
+    let instance = PolarPlugin(
       messenger: registrar.messenger(),
       methodChannel: methodChannel,
       eventChannel: eventChannel,
@@ -91,6 +107,9 @@ public class SwiftPolarPlugin:
 
     do {
       switch call.method {
+      case "shutDown":
+        shutDown()
+        result(nil)
       case "connectToDevice":
         try api.connectToDevice(call.arguments as! String)
         result(nil)
@@ -144,12 +163,13 @@ public class SwiftPolarPlugin:
     -> FlutterError?
   {
     initApi()
-    self.events = events
+    self.sinks[arguments as! Int] = events
     return nil
   }
 
   public func onCancel(withArguments arguments: Any?) -> FlutterError? {
-    events = nil
+    guard let id = arguments as? Int else { return nil }
+    self.sinks.removeValue(forKey: id)
     return nil
   }
 
@@ -210,10 +230,9 @@ public class SwiftPolarPlugin:
         guard let data = jsonEncode(data.map { PolarDeviceDataType.allCases.firstIndex(of: $0)! })
         else {
           result(
-            result(
-              FlutterError(
-                code: "Unable to get available online stream data types", message: nil, details: nil
-              )))
+            FlutterError(
+              code: "Unable to get available online stream data types", message: nil, details: nil
+            ))
           return
         }
         result(data)
@@ -236,10 +255,9 @@ public class SwiftPolarPlugin:
         guard let data = jsonEncode(data.map { PolarDeviceDataType.allCases.firstIndex(of: $0)! })
         else {
           result(
-            result(
-              FlutterError(
-                code: "Unable to get available HR service data types", message: nil, details: nil
-              )))
+            FlutterError(
+              code: "Unable to get available HR service data types", message: nil, details: nil
+            ))
           return
         }
         result(data)
@@ -507,7 +525,9 @@ public class SwiftPolarPlugin:
 
   private func success(_ event: String, data: Any? = nil) {
     DispatchQueue.main.async {
-      self.events?(["event": event, "data": data])
+      for sink in self.sinks {
+        sink.value(["event": event, "data": data])
+      }
     }
   }
 

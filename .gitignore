@@ -9,3 +9,7 @@ coverage/
 
 pubspec.lock
 .cxx
+.build/
+.swiftpm/
+*.xcscheme.backup
+**/swiftpm/Package.resolved
