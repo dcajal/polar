@@ -35,6 +35,27 @@ void main() {
 
   testSearch(identifier);
   testConnection(identifier);
+  test('connection lifecycle APIs', () async {
+    expect(
+      await polar.isFeatureReady(identifier, PolarSdkFeature.onlineStreaming),
+      isTrue,
+    );
+
+    await polar.setAutomaticReconnection(true);
+    expect(automaticReconnectionEnabled, isTrue);
+
+    await polar.waitForConnection(
+      identifier,
+      timeout: const Duration(seconds: 12),
+    );
+    expect(waitForConnectionArguments, [identifier, 12000]);
+  });
+  test('waitForConnection rejects a non-positive timeout', () {
+    expect(
+      () => polar.waitForConnection(identifier, timeout: Duration.zero),
+      throwsArgumentError,
+    );
+  });
   testBasicData(
     identifier,
     expectedChargeState: PolarChargeState.dischargingActive,
@@ -52,12 +73,26 @@ final exercises = <PolarExerciseEntry>[];
 var recording = false;
 var exerciseId = '';
 var sdkModeEnabled = false;
+var automaticReconnectionEnabled = false;
+List<dynamic>? waitForConnectionArguments;
 
 Future<dynamic> handleMethodCall(MethodCall call) async {
   switch (call.method) {
     case 'connectToDevice':
       return null;
     case 'disconnectFromDevice':
+      return null;
+    case 'isFeatureReady':
+      expect(call.arguments, [
+        identifier,
+        PolarSdkFeature.onlineStreaming.toJson(),
+      ]);
+      return true;
+    case 'setAutomaticReconnection':
+      automaticReconnectionEnabled = call.arguments as bool;
+      return null;
+    case 'waitForConnection':
+      waitForConnectionArguments = (call.arguments as List).cast<dynamic>();
       return null;
     case 'getAvailableOnlineStreamDataTypes':
       return jsonEncode(PolarDataType.values.map((e) => e.toJson()).toList());

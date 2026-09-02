@@ -20,6 +20,10 @@ let package = Package(
       dependencies: [
         .product(name: "PolarBleSdk", package: "polar-ble-sdk")
       ],
+    ),
+    .testTarget(
+      name: "polarTests",
+      dependencies: ["polar", .product(name: "PolarBleSdk", package: "polar-ble-sdk")]
     )
   ]
 )

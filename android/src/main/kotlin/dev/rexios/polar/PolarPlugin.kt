@@ -41,9 +41,12 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.reactivex.rxjava3.disposables.Disposable
+import io.reactivex.rxjava3.disposables.SerialDisposable
 import java.lang.reflect.Type
 import java.util.Date
 import java.util.UUID
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 fun Any?.discard() = Unit
 
@@ -137,13 +140,29 @@ class PolarPlugin :
             }
 
             "connectToDevice" -> {
-                wrapper.api.connectToDevice(call.arguments as String)
+                wrapper.connectToDevice(call.arguments as String)
                 result.success(null)
             }
 
             "disconnectFromDevice" -> {
-                wrapper.api.disconnectFromDevice(call.arguments as String)
+                wrapper.disconnectFromDevice(call.arguments as String)
                 result.success(null)
+            }
+
+            "isFeatureReady" -> {
+                val arguments = call.arguments as List<*>
+                val identifier = arguments[0] as String
+                val feature = gson.fromJson(arguments[1] as String, PolarBleSdkFeature::class.java)
+                result.success(wrapper.isFeatureReady(identifier, feature))
+            }
+
+            "setAutomaticReconnection" -> {
+                wrapper.api.setAutomaticReconnection(call.arguments as Boolean)
+                result.success(null)
+            }
+
+            "waitForConnection" -> {
+                waitForConnection(call, result)
             }
 
             "getAvailableOnlineStreamDataTypes" -> {
@@ -312,6 +331,7 @@ class PolarPlugin :
         streamingChannels.clear()
         searchHandler.dispose()
         if (wrapperInternal != null) {
+            wrapper.clearFeatureReadiness()
             try {
                 wrapper.api.shutDown()
             } catch (_: Exception) {
@@ -336,6 +356,39 @@ class PolarPlugin :
                 }
             })
             .discard()
+    }
+
+    private fun waitForConnection(
+        call: MethodCall,
+        result: Result,
+    ) {
+        val arguments = call.arguments as List<*>
+        val identifier = arguments[0] as String
+        val timeoutMilliseconds = (arguments[1] as Number).toLong()
+        val subscription = SerialDisposable()
+
+        subscription.set(
+            wrapper.api
+                .waitForConnection(identifier)
+                .timeout(timeoutMilliseconds, TimeUnit.MILLISECONDS)
+                .subscribe({
+                    subscription.dispose()
+                    runOnUiThread { result.success(null) }
+                }, { error ->
+                    subscription.dispose()
+                    runOnUiThread {
+                        if (error is TimeoutException) {
+                            result.error(
+                                "waitForConnectionTimeout",
+                                "Timed out waiting for Polar device connection",
+                                null,
+                            )
+                        } else {
+                            result.error(error.toString(), error.message, null)
+                        }
+                    }
+                }),
+        )
     }
 
     private fun getAvailableHrServiceDataTypes(
@@ -634,8 +687,33 @@ class PolarWrapper(
         ),
     private val sinks: MutableMap<Int, EventSink> = mutableMapOf(),
 ) : PolarBleApiCallbackProvider {
+    private val featureReadiness = FeatureReadinessCache()
+
     init {
         api.setApiCallback(this)
+    }
+
+    fun connectToDevice(identifier: String) {
+        featureReadiness.clear(identifier)
+        api.connectToDevice(identifier)
+    }
+
+    fun disconnectFromDevice(identifier: String) {
+        featureReadiness.clear(identifier)
+        api.disconnectFromDevice(identifier)
+    }
+
+    fun isFeatureReady(
+        identifier: String,
+        feature: PolarBleSdkFeature,
+    ): Boolean = featureReadiness.isReady(
+        identifier,
+        feature,
+        nativeReady = api.isFeatureReady(identifier, feature),
+    )
+
+    fun clearFeatureReadiness() {
+        featureReadiness.clearAll()
     }
 
     fun addSink(
@@ -657,6 +735,7 @@ class PolarWrapper(
     }
 
     fun shutDown() {
+        featureReadiness.clearAll()
         // Do not shutdown the api if other engines are still using it
         if (sinks.isNotEmpty()) return
         try {
@@ -674,6 +753,7 @@ class PolarWrapper(
         identifier: String,
         feature: PolarBleSdkFeature,
     ) {
+        featureReadiness.record(identifier, feature)
         success("sdkFeatureReady", listOf(identifier, feature.name))
     }
 
@@ -682,10 +762,12 @@ class PolarWrapper(
     }
 
     override fun deviceConnecting(polarDeviceInfo: PolarDeviceInfo) {
+        featureReadiness.clear(polarDeviceInfo.deviceId)
         success("deviceConnecting", gson.toJson(polarDeviceInfo))
     }
 
     override fun deviceDisconnected(polarDeviceInfo: PolarDeviceInfo) {
+        featureReadiness.clear(polarDeviceInfo.deviceId)
         success(
             "deviceDisconnected",
             // The second argument is the `pairingError` field on iOS
