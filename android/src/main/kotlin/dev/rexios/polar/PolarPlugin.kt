@@ -3,6 +3,7 @@ package dev.rexios.polar
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.lifecycle.Lifecycle.Event
 import androidx.lifecycle.LifecycleEventObserver
 import com.google.gson.GsonBuilder
@@ -69,6 +70,7 @@ private fun runOnUiThread(runnable: () -> Unit) {
 }
 
 private val gson = GsonBuilder().registerTypeAdapter(Date::class.java, DateSerializer).create()
+private const val TAG = "PolarPlugin"
 
 private var wrapperInternal: PolarWrapper? = null
 private val wrapper: PolarWrapper
@@ -331,7 +333,7 @@ class PolarPlugin :
         streamingChannels.clear()
         searchHandler.dispose()
         if (wrapperInternal != null) {
-            wrapper.clearFeatureReadiness()
+            wrapper.clearLifecycleState()
             try {
                 wrapper.api.shutDown()
             } catch (_: Exception) {
@@ -688,19 +690,29 @@ class PolarWrapper(
     private val sinks: MutableMap<Int, EventSink> = mutableMapOf(),
 ) : PolarBleApiCallbackProvider {
     private val featureReadiness = FeatureReadinessCache()
+    private val explicitDisconnects = ExplicitDisconnectSessionIsolation()
 
     init {
         api.setApiCallback(this)
     }
 
     fun connectToDevice(identifier: String) {
+        clearStaleExplicitDisconnect(identifier, "connect request")
         featureReadiness.clear(identifier)
         api.connectToDevice(identifier)
     }
 
     fun disconnectFromDevice(identifier: String) {
-        featureReadiness.clear(identifier)
-        api.disconnectFromDevice(identifier)
+        try {
+            explicitDisconnects.request(identifier) {
+                Log.d(TAG, "Explicit disconnect registered: $identifier")
+                featureReadiness.clear(identifier)
+                api.disconnectFromDevice(identifier)
+            }
+        } catch (error: Throwable) {
+            Log.w(TAG, "Explicit disconnect registration rolled back: $identifier")
+            throw error
+        }
     }
 
     fun isFeatureReady(
@@ -712,8 +724,9 @@ class PolarWrapper(
         nativeReady = api.isFeatureReady(identifier, feature),
     )
 
-    fun clearFeatureReadiness() {
+    fun clearLifecycleState() {
         featureReadiness.clearAll()
+        explicitDisconnects.clearAll()
     }
 
     fun addSink(
@@ -735,7 +748,7 @@ class PolarWrapper(
     }
 
     fun shutDown() {
-        featureReadiness.clearAll()
+        clearLifecycleState()
         // Do not shutdown the api if other engines are still using it
         if (sinks.isNotEmpty()) return
         try {
@@ -758,22 +771,45 @@ class PolarWrapper(
     }
 
     override fun deviceConnected(polarDeviceInfo: PolarDeviceInfo) {
+        clearStaleExplicitDisconnect(polarDeviceInfo.deviceId, "connected callback")
         success("deviceConnected", gson.toJson(polarDeviceInfo))
     }
 
     override fun deviceConnecting(polarDeviceInfo: PolarDeviceInfo) {
+        clearStaleExplicitDisconnect(polarDeviceInfo.deviceId, "connecting callback")
         featureReadiness.clear(polarDeviceInfo.deviceId)
         success("deviceConnecting", gson.toJson(polarDeviceInfo))
     }
 
     override fun deviceDisconnected(polarDeviceInfo: PolarDeviceInfo) {
-        featureReadiness.clear(polarDeviceInfo.deviceId)
-        success(
-            "deviceDisconnected",
-            // The second argument is the `pairingError` field on iOS
-            // Since Android doesn't implement that, always send false
-            listOf(gson.toJson(polarDeviceInfo), false),
+        val identifier = polarDeviceInfo.deviceId
+        featureReadiness.clear(identifier)
+        Log.d(TAG, "Native deviceDisconnected callback received: $identifier")
+        explicitDisconnects.complete(
+            identifier = identifier,
+            cleanupClosedSessions = {
+                api.cleanup()
+                Log.d(TAG, "Closed SDK sessions cleaned after explicit disconnect: $identifier")
+            },
+            publishDisconnected = {
+                success(
+                    "deviceDisconnected",
+                    // The second argument is the `pairingError` field on iOS
+                    // Since Android doesn't implement that, always send false
+                    listOf(gson.toJson(polarDeviceInfo), false),
+                )
+                Log.d(TAG, "Dart deviceDisconnected event queued: $identifier")
+            },
         )
+    }
+
+    private fun clearStaleExplicitDisconnect(
+        identifier: String,
+        source: String,
+    ) {
+        if (explicitDisconnects.clearForNewConnection(identifier)) {
+            Log.d(TAG, "Stale explicit disconnect cleared on $source: $identifier")
+        }
     }
 
     override fun disInformationReceived(

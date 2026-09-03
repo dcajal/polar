@@ -12,7 +12,7 @@ let package = Package(
     .library(name: "polar", targets: ["polar"])
   ],
   dependencies: [
-    .package(url: "https://github.com/polarofficial/polar-ble-sdk.git", .exact("6.15.0"))
+    .package(url: "https://github.com/polarofficial/polar-ble-sdk.git", .exact("6.16.1"))
   ],
   targets: [
     .target(
