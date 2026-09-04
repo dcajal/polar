@@ -147,7 +147,10 @@ class PolarPlugin :
             }
 
             "disconnectFromDevice" -> {
-                wrapper.disconnectFromDevice(call.arguments as String)
+                wrapper.disconnectFromDevice(
+                    call.arguments as String,
+                    cancelStreamingChannels = ::cancelStreamingChannels,
+                )
                 result.success(null)
             }
 
@@ -301,6 +304,16 @@ class PolarPlugin :
         }
 
         result.success(null)
+    }
+
+    private fun cancelStreamingChannels(identifier: String) {
+        streamingChannels.values.forEach { channel ->
+            try {
+                channel.cancelIfOwnedBy(identifier)
+            } catch (error: Throwable) {
+                Log.w(TAG, "Failed to cancel a streaming channel for $identifier", error)
+            }
+        }
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
@@ -702,13 +715,22 @@ class PolarWrapper(
         api.connectToDevice(identifier)
     }
 
-    fun disconnectFromDevice(identifier: String) {
+    fun disconnectFromDevice(
+        identifier: String,
+        cancelStreamingChannels: (String) -> Unit = {},
+    ) {
         try {
-            explicitDisconnects.request(identifier) {
-                Log.d(TAG, "Explicit disconnect registered: $identifier")
-                featureReadiness.clear(identifier)
-                api.disconnectFromDevice(identifier)
-            }
+            explicitDisconnects.request(
+                identifier = identifier,
+                disconnect = {
+                    Log.d(TAG, "Explicit disconnect registered: $identifier")
+                    featureReadiness.clear(identifier)
+                    api.disconnectFromDevice(identifier)
+                },
+                afterDisconnectRequested = {
+                    cancelStreamingChannels(identifier)
+                },
+            )
         } catch (error: Throwable) {
             Log.w(TAG, "Explicit disconnect registration rolled back: $identifier")
             throw error
@@ -883,7 +905,7 @@ class StreamingChannel(
     private val feature: PolarDeviceDataType,
     private val channel: EventChannel = EventChannel(messenger, name),
 ) : EventChannel.StreamHandler {
-    private var subscription: Disposable? = null
+    private val subscriptionSlot = StreamingSubscriptionSlot()
 
     init {
         channel.setStreamHandler(this)
@@ -893,6 +915,7 @@ class StreamingChannel(
         arguments: Any?,
         events: EventSink,
     ) {
+        val token = subscriptionSlot.begin(identifier)
         // Will be null for some features
         val settings = gson.fromJson(arguments as String, PolarSensorSetting::class.java)
 
@@ -949,24 +972,40 @@ class StreamingChannel(
                 }
             }
 
-        subscription =
-            stream.subscribe({
-                runOnUiThread { events.success(gson.toJson(it)) }
-            }, {
-                runOnUiThread {
-                    events.error(it.toString(), it.message, null)
+        val subscription = stream.subscribe({ data ->
+            runOnUiThread {
+                if (subscriptionSlot.isCurrent(token)) {
+                    events.success(gson.toJson(data))
                 }
-            }, {
-                runOnUiThread { events.endOfStream() }
-            })
+            }
+        }, { error ->
+            runOnUiThread {
+                if (subscriptionSlot.isCurrent(token)) {
+                    events.error(error.toString(), error.message, null)
+                    subscriptionSlot.clearIfCurrent(token)
+                }
+            }
+        }, {
+            runOnUiThread {
+                if (subscriptionSlot.isCurrent(token)) {
+                    events.endOfStream()
+                    subscriptionSlot.clearIfCurrent(token)
+                }
+            }
+        })
+        subscriptionSlot.install(token, subscription)
     }
 
     override fun onCancel(arguments: Any?) {
-        subscription?.dispose()
+        subscriptionSlot.cancelIfOwnedBy(identifier)
+    }
+
+    fun cancelIfOwnedBy(identifier: String) {
+        subscriptionSlot.cancelIfOwnedBy(identifier)
     }
 
     fun dispose() {
-        subscription?.dispose()
+        subscriptionSlot.cancel()
         channel.setStreamHandler(null)
     }
 }

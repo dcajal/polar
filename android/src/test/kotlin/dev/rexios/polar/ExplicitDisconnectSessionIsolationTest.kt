@@ -118,6 +118,42 @@ class ExplicitDisconnectSessionIsolationTest {
     }
 
     @Test
+    fun streamsAreCancelledAfterDisconnectIsRequested() {
+        val isolation = ExplicitDisconnectSessionIsolation()
+        val order = mutableListOf<String>()
+
+        isolation.request(
+            identifier = "A",
+            disconnect = { order.add("disconnect") },
+            afterDisconnectRequested = { order.add("cancel-streams") },
+        )
+
+        assertEquals(listOf("disconnect", "cancel-streams"), order)
+        assertTrue(isolation.isPending("A"))
+    }
+
+    @Test
+    fun synchronousDisconnectFailureDoesNotCancelStreams() {
+        val isolation = ExplicitDisconnectSessionIsolation()
+        val failure = IllegalStateException("disconnect failed")
+        var cancelCalls = 0
+
+        try {
+            isolation.request(
+                identifier = "A",
+                disconnect = { throw failure },
+                afterDisconnectRequested = { cancelCalls++ },
+            )
+            fail("Expected the synchronous disconnect failure")
+        } catch (error: IllegalStateException) {
+            assertSame(failure, error)
+        }
+
+        assertEquals(0, cancelCalls)
+        assertFalse(isolation.isPending("A"))
+    }
+
+    @Test
     fun newConnectionClearsAStaleRegistrationForThatDeviceOnly() {
         val isolation = ExplicitDisconnectSessionIsolation()
         isolation.request("A") {}
