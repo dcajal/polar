@@ -1,10 +1,3 @@
-## Unreleased
-
-- Upgrades the Android and iOS Polar BLE SDKs to `6.16.1`.
-- Cleans closed Android SDK sessions after explicitly requested disconnections,
-  before forwarding `deviceDisconnected` to Dart. Spontaneous disconnections
-  remain eligible for native automatic reconnection.
-
 ## 7.11.0
 
 - Adds `shutDown` to release Polar SDK resources
