@@ -15,8 +15,8 @@ internal class ExplicitDisconnectSessionIsolation {
 
     fun request(
         identifier: String,
-        disconnect: () -> Unit,
         afterDisconnectRequested: () -> Unit = {},
+        disconnect: () -> Unit,
     ) {
         val markerAdded = synchronized(lock) {
             pendingDevices.add(identifier)
