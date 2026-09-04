@@ -65,7 +65,7 @@ final class PmdNotificationWaiter {
       .amb(disconnection)
       .timeout(
         timeout,
-        other: .error(PmdNotificationWaitError.timeout),
+        other: Observable<Element>.error(PmdNotificationWaitError.timeout),
         scheduler: scheduler
       )
       .take(1)
