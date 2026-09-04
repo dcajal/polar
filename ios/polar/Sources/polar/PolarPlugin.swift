@@ -46,6 +46,7 @@ public class PolarPlugin:
   var api: PolarBleApi!
   var sinks: [Int: FlutterEventSink] = [:]
   let featureReadiness = FeatureReadinessCache()
+  let pmdNotificationWaiter = PmdNotificationWaiter()
 
   init(
     messenger: FlutterBinaryMessenger,
@@ -312,7 +313,10 @@ public class PolarPlugin:
   ) {
     let identifier = call.arguments as! String
 
-    _ = api.getAvailableOnlineStreamDataTypes(identifier).subscribe(
+    _ = pmdNotificationWaiter.run(
+      identifier: identifier,
+      operation: { self.api.getAvailableOnlineStreamDataTypes(identifier) }
+    ).subscribe(
       onSuccess: { data in
         guard let data = jsonEncode(data.map { PolarDeviceDataType.allCases.firstIndex(of: $0)! })
         else {
@@ -637,6 +641,7 @@ public class PolarPlugin:
 
   public func deviceDisconnected(_ polarDeviceInfo: PolarDeviceInfo, pairingError: Bool) {
     featureReadiness.clear(polarDeviceInfo.deviceId)
+    pmdNotificationWaiter.deviceDisconnected(polarDeviceInfo.deviceId)
     guard let data = jsonEncode(PolarDeviceInfoCodable(polarDeviceInfo))
     else {
       return
