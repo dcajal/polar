@@ -15,6 +15,18 @@ internal class FeatureReadinessCache {
         Unit
     }
 
+    fun recordReadiness(
+        identifier: String,
+        ready: List<PolarBleSdkFeature>,
+        unavailable: List<PolarBleSdkFeature>,
+    ): Unit = synchronized(lock) {
+        val features = featuresByDevice.getOrPut(identifier) { mutableSetOf() }
+        features.removeAll(unavailable.toSet())
+        features.addAll(ready)
+        if (features.isEmpty()) featuresByDevice.remove(identifier)
+        Unit
+    }
+
     fun isReady(
         identifier: String,
         feature: PolarBleSdkFeature,

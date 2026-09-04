@@ -24,6 +24,25 @@ class FeatureReadinessCacheTest {
     }
 
     @Test
+    fun aggregateReadinessRecordsReadyFeatures() {
+        val cache = FeatureReadinessCache()
+
+        cache.recordReadiness("A", ready = listOf(feature), unavailable = emptyList())
+
+        assertTrue(cache.isReady("A", feature, nativeReady = false))
+    }
+
+    @Test
+    fun aggregateReadinessRemovesUnavailableFeatures() {
+        val cache = FeatureReadinessCache()
+        cache.record("A", feature)
+
+        cache.recordReadiness("A", ready = emptyList(), unavailable = listOf(feature))
+
+        assertFalse(cache.isReady("A", feature, nativeReady = false))
+    }
+
+    @Test
     fun devicesHaveIndependentState() {
         val cache = FeatureReadinessCache()
         cache.record("A", feature)
